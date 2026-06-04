@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   fullImageRegion,
+  focusRegionFromRatio,
+  focusRegionToRatio,
   isUsableFocusRegion,
   mapRectFromFocusRegion,
   normalizeFocusRegion
@@ -50,6 +52,18 @@ describe("focusRegion", () => {
       y: 0,
       width: 1920,
       height: 1080
+    });
+  });
+
+  it("reuses a focus region ratio across image sizes", () => {
+    const ratio = focusRegionToRatio({ x: 96, y: 54, width: 768, height: 432 }, 960, 540);
+    const scaled = focusRegionFromRatio(ratio, 1920, 1080);
+
+    expect(scaled).toEqual({
+      x: 192,
+      y: 108,
+      width: 1536,
+      height: 864
     });
   });
 });

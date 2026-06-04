@@ -21,6 +21,23 @@ export type ExportManifest = {
   }>;
 };
 
+export type BatchExportSource = {
+  sourceName: string;
+  sourcePath?: string;
+  image: HTMLImageElement;
+  rects: Rect[];
+};
+
+export type BatchExportManifest = {
+  generatedAt: string;
+  images: Array<
+    ExportManifest & {
+      folder: string;
+      sourcePath?: string;
+    }
+  >;
+};
+
 export function createManifest(
   image: HTMLImageElement,
   rects: Rect[],
@@ -63,6 +80,44 @@ export async function downloadCropsAsZip(
   zip.file("manifest.json", JSON.stringify(manifest, null, 2));
   const zipBlob = await zip.generateAsync({ type: "blob" });
   downloadBlob(zipBlob, `${baseFileName(sourceName)}-ui-elements.zip`);
+}
+
+export async function downloadBatchCropsAsZip(sources: BatchExportSource[]): Promise<void> {
+  const zip = new JSZip();
+  const batchManifest: BatchExportManifest = {
+    generatedAt: new Date().toISOString(),
+    images: []
+  };
+
+  for (const source of sources) {
+    const folderName = uniqueFolderName(
+      zip,
+      baseFileName(source.sourcePath ?? source.sourceName)
+    );
+    const folder = zip.folder(folderName);
+
+    if (!folder) {
+      throw new Error(`Failed to create folder for ${source.sourceName}.`);
+    }
+
+    const manifest = createManifest(source.image, source.rects, source.sourceName);
+
+    for (const [index, rect] of source.rects.entries()) {
+      const blob = await cropToPngBlob(source.image, rect);
+      folder.file(elementFileName(index, rect.label), await blob.arrayBuffer());
+    }
+
+    folder.file("manifest.json", JSON.stringify(manifest, null, 2));
+    batchManifest.images.push({
+      ...manifest,
+      folder: folderName,
+      sourcePath: source.sourcePath
+    });
+  }
+
+  zip.file("batch-manifest.json", JSON.stringify(batchManifest, null, 2));
+  const zipBlob = await zip.generateAsync({ type: "blob" });
+  downloadBlob(zipBlob, "tv-ui-icon-batch.zip");
 }
 
 export function downloadManifest(
@@ -138,4 +193,20 @@ function slugify(value: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
+}
+
+function uniqueFolderName(zip: JSZip, base: string): string {
+  let candidate = base || "image";
+  let index = 2;
+
+  while (zip.file(new RegExp(`^${escapeRegExp(candidate)}(/|$)`)).length > 0) {
+    candidate = `${base || "image"}-${index}`;
+    index += 1;
+  }
+
+  return candidate;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

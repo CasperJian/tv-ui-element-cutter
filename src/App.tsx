@@ -15,6 +15,7 @@ import {
   Crop,
   Download,
   FileJson,
+  FolderOpen,
   Image as ImageIcon,
   Maximize2,
   RotateCcw,
@@ -31,9 +32,17 @@ import {
   detectIconCandidates,
   DetectionOptions
 } from "./lib/detectElements";
-import { downloadCropsAsZip, downloadManifest } from "./lib/exportElements";
+import {
+  BatchExportSource,
+  downloadBatchCropsAsZip,
+  downloadCropsAsZip,
+  downloadManifest
+} from "./lib/exportElements";
 import {
   FocusRegion,
+  FocusRegionRatio,
+  focusRegionFromRatio,
+  focusRegionToRatio,
   fullImageRegion,
   isUsableFocusRegion,
   normalizeFocusRegion,
@@ -66,6 +75,7 @@ type Status = {
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
   const referenceInputRef = useRef<HTMLInputElement | null>(null);
   const dragStartRef = useRef<Point | null>(null);
   const [loadState, setLoadState] = useState<LoadState | null>(null);
@@ -83,6 +93,11 @@ export default function App() {
     () => detections.filter((rect) => selectedIds.has(rect.id)),
     [detections, selectedIds]
   );
+
+  useEffect(() => {
+    folderInputRef.current?.setAttribute("webkitdirectory", "");
+    folderInputRef.current?.setAttribute("directory", "");
+  }, []);
 
   const runDetection = useCallback(() => {
     if (!loadState) {
@@ -203,6 +218,63 @@ export default function App() {
       });
     }
   }, []);
+
+  const handleBatchFiles = useCallback(
+    async (files: FileList | null) => {
+      const imageFiles = Array.from(files ?? [])
+        .filter((file) => file.type.startsWith("image/"))
+        .sort((a, b) => batchFilePath(a).localeCompare(batchFilePath(b)));
+
+      if (imageFiles.length === 0) {
+        setStatus({ label: "Choose an image folder", tone: "error" });
+        return;
+      }
+
+      const focusRatio =
+        loadState && focusRegion
+          ? focusRegionToRatio(focusRegion, loadState.image.naturalWidth, loadState.image.naturalHeight)
+          : null;
+      const objectUrls: string[] = [];
+      const sources: BatchExportSource[] = [];
+
+      setStatus({ label: `Batch 0/${imageFiles.length}`, tone: "busy" });
+
+      try {
+        for (const [index, file] of imageFiles.entries()) {
+          setStatus({ label: `Batch ${index + 1}/${imageFiles.length}`, tone: "busy" });
+          const src = URL.createObjectURL(file);
+          objectUrls.push(src);
+          const image = await loadImageElement(src);
+          const batchFocusRegion = focusRatio
+            ? focusRegionFromRatio(focusRatio, image.naturalWidth, image.naturalHeight)
+            : null;
+          const rects = detectFromImage(image, options, batchFocusRegion);
+          const recognized = await recognizeRectsFromImage(image, rects, referenceIcons);
+
+          sources.push({
+            sourceName: file.name,
+            sourcePath: batchFilePath(file),
+            image,
+            rects: recognized
+          });
+        }
+
+        await downloadBatchCropsAsZip(sources);
+        setStatus({
+          label: `${imageFiles.length} image${imageFiles.length === 1 ? "" : "s"} exported`,
+          tone: "ok"
+        });
+      } catch (error) {
+        setStatus({
+          label: error instanceof Error ? error.message : "Batch export failed",
+          tone: "error"
+        });
+      } finally {
+        objectUrls.forEach((url) => URL.revokeObjectURL(url));
+      }
+    },
+    [focusRegion, loadState, options, referenceIcons]
+  );
 
   const drawPreview = useCallback(() => {
     const canvas = canvasRef.current;
@@ -448,6 +520,14 @@ export default function App() {
             multiple
             onChange={(event: ChangeEvent<HTMLInputElement>) => handleReferenceFiles(event.target.files)}
           />
+          <input
+            ref={folderInputRef}
+            className="visually-hidden"
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={(event: ChangeEvent<HTMLInputElement>) => handleBatchFiles(event.target.files)}
+          />
           <button
             className="icon-button"
             type="button"
@@ -463,6 +543,14 @@ export default function App() {
             onClick={() => referenceInputRef.current?.click()}
           >
             <BadgePlus size={19} aria-hidden="true" />
+          </button>
+          <button
+            className="icon-button"
+            type="button"
+            title="Batch folder"
+            onClick={() => folderInputRef.current?.click()}
+          >
+            <FolderOpen size={19} aria-hidden="true" />
           </button>
           <button
             className="icon-button primary"
@@ -965,4 +1053,8 @@ function loadImageElement(src: string): Promise<HTMLImageElement> {
 
 function formatConfidence(value: number): string {
   return `${Math.round(value * 100)}%`;
+}
+
+function batchFilePath(file: File): string {
+  return (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
 }

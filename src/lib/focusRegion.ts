@@ -12,6 +12,13 @@ export type FocusRegion = {
   height: number;
 };
 
+export type FocusRegionRatio = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
 export function normalizeFocusRegion(
   start: Point,
   end: Point,
@@ -41,6 +48,32 @@ export function fullImageRegion(width: number, height: number): FocusRegion {
     y: 0,
     width,
     height
+  };
+}
+
+export function focusRegionToRatio(
+  region: FocusRegion,
+  imageWidth: number,
+  imageHeight: number
+): FocusRegionRatio {
+  return {
+    x: region.x / imageWidth,
+    y: region.y / imageHeight,
+    width: region.width / imageWidth,
+    height: region.height / imageHeight
+  };
+}
+
+export function focusRegionFromRatio(
+  ratio: FocusRegionRatio,
+  imageWidth: number,
+  imageHeight: number
+): FocusRegion {
+  return {
+    x: Math.round(ratio.x * imageWidth),
+    y: Math.round(ratio.y * imageHeight),
+    width: Math.round(ratio.width * imageWidth),
+    height: Math.round(ratio.height * imageHeight)
   };
 }
 

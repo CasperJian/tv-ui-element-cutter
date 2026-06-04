@@ -7,6 +7,7 @@ A browser-based tool for finding, cutting, and naming icons inside TV UI screens
 - Upload or drop a TV photo or UI screenshot into the workspace.
 - Focus the actual screen UI region before icon segmentation.
 - Cut detected icons from the focused region while preserving original-image coordinates.
+- Batch-run an image folder and export one ZIP for the whole set.
 - Upload reference icons such as `netflix.png`, `settings.png`, or `youtube.png`; file names become labels.
 - Detect compact app/function icons with a tunable image-processing pass that filters long text-like regions and large panels.
 - Match candidates against uploaded reference icons.
@@ -25,6 +26,14 @@ npm run dev
 ```
 
 Open the local URL printed by Vite.
+
+## Batch Processing
+
+Use the folder button in the top toolbar to select an image folder. The app processes every image file in that folder and downloads `tv-ui-icon-batch.zip`.
+
+If a focus region is already selected on the current image, batch mode reuses that focus as a proportional template for every image in the folder. If no focus region is selected, each image is scanned at full frame.
+
+The ZIP contains one folder per source image, each with cropped icon PNGs and a per-image `manifest.json`. The ZIP root also contains `batch-manifest.json`.
 
 ## Scripts
 
@@ -61,6 +70,8 @@ npm run preview  # Preview the production build
 The workflow separates screen focus from icon segmentation. A focus region defines the TV UI area to process; if no region is selected, the full image is used. The icon detector then builds a signal mask from local luminance contrast, color saturation, and bright-panel edges inside that focused region. It dilates nearby pixels, extracts connected components, filters tiny noise, rejects long text-like regions and oversized panels, merges nearby icon fragments, applies padding, maps coordinates back to the original image, and sorts the final crop regions from top to bottom.
 
 Each crop is then converted into compact visual features: color ratios, edge density, aspect ratio, and a small luminance hash. The recognizer first compares those features against uploaded reference icons, then falls back to local heuristics.
+
+There is no neural-network model in the current version. The extraction core is a deterministic computer-vision pipeline: contrast/saturation masking, dilation, connected components, geometry filtering, and optional reference-icon feature matching.
 
 The controls expose the most useful tuning points:
 
