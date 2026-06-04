@@ -12,9 +12,11 @@ import {
 import {
   BadgePlus,
   Check,
+  Crop,
   Download,
   FileJson,
   Image as ImageIcon,
+  Maximize2,
   RotateCcw,
   ScanLine,
   Scissors,
@@ -31,6 +33,14 @@ import {
 } from "./lib/detectElements";
 import { downloadCropsAsZip, downloadManifest } from "./lib/exportElements";
 import {
+  FocusRegion,
+  fullImageRegion,
+  isUsableFocusRegion,
+  normalizeFocusRegion,
+  Point,
+  mapRectFromFocusRegion
+} from "./lib/focusRegion";
+import {
   extractVisualFeatures,
   labelFromFileName,
   recognizeIcon,
@@ -39,6 +49,8 @@ import {
 import { Rect, reindexRects } from "./lib/rect";
 
 const PROCESS_MAX_DIMENSION = 2200;
+
+type WorkMode = "focus" | "icons";
 
 type LoadState = {
   image: HTMLImageElement;
@@ -55,7 +67,11 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const referenceInputRef = useRef<HTMLInputElement | null>(null);
+  const dragStartRef = useRef<Point | null>(null);
   const [loadState, setLoadState] = useState<LoadState | null>(null);
+  const [workMode, setWorkMode] = useState<WorkMode>("focus");
+  const [focusRegion, setFocusRegion] = useState<FocusRegion | null>(null);
+  const [draftFocusRegion, setDraftFocusRegion] = useState<FocusRegion | null>(null);
   const [detections, setDetections] = useState<Rect[]>([]);
   const [referenceIcons, setReferenceIcons] = useState<ReferenceIcon[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -77,10 +93,11 @@ export default function App() {
 
     window.requestAnimationFrame(async () => {
       try {
-        const rects = detectFromImage(loadState.image, options);
+        const rects = detectFromImage(loadState.image, options, focusRegion);
         const recognized = await recognizeRectsFromImage(loadState.image, rects, referenceIcons);
         setDetections(recognized);
         setSelectedIds(new Set(recognized.map((rect) => rect.id)));
+        setWorkMode("icons");
         setStatus({
           label: `${recognized.length} icon${recognized.length === 1 ? "" : "s"} found`,
           tone: "ok"
@@ -92,7 +109,7 @@ export default function App() {
         });
       }
     });
-  }, [loadState, options, referenceIcons]);
+  }, [focusRegion, loadState, options, referenceIcons]);
 
   useEffect(() => {
     if (!loadState || detections.length === 0) {
@@ -133,6 +150,9 @@ export default function App() {
       });
       setDetections([]);
       setSelectedIds(new Set());
+      setFocusRegion(null);
+      setDraftFocusRegion(null);
+      setWorkMode("focus");
       setStatus({ label: "Image loaded", tone: "ok" });
     };
     image.onerror = () => {
@@ -205,6 +225,12 @@ export default function App() {
     context.lineJoin = "round";
     context.font = `${Math.max(14, Math.round(canvas.width / 120))}px system-ui`;
 
+    const activeFocusRegion = draftFocusRegion ?? focusRegion;
+
+    if (activeFocusRegion) {
+      drawFocusOverlay(context, activeFocusRegion, canvas.width, canvas.height);
+    }
+
     detections.forEach((rect, index) => {
       const selected = selectedIds.has(rect.id);
       const lineWidth = selected
@@ -229,7 +255,7 @@ export default function App() {
       context.fillText(label, labelX + 7, labelY + 17);
       context.restore();
     });
-  }, [detections, loadState, selectedIds]);
+  }, [detections, draftFocusRegion, focusRegion, loadState, selectedIds]);
 
   useEffect(() => {
     drawPreview();
@@ -247,16 +273,91 @@ export default function App() {
     setOptions(DEFAULT_DETECTION_OPTIONS);
   };
 
-  const toggleRectAtPointer = (event: PointerEvent<HTMLCanvasElement>) => {
+  const clearFocus = () => {
+    setFocusRegion(null);
+    setDraftFocusRegion(null);
+    setDetections([]);
+    setSelectedIds(new Set());
+    setWorkMode("focus");
+    setStatus({ label: "Full image", tone: "idle" });
+  };
+
+  const getCanvasPoint = (event: PointerEvent<HTMLCanvasElement>): Point | null => {
     const canvas = canvasRef.current;
 
     if (!canvas) {
-      return;
+      return null;
     }
 
     const bounds = canvas.getBoundingClientRect();
-    const x = ((event.clientX - bounds.left) / bounds.width) * canvas.width;
-    const y = ((event.clientY - bounds.top) / bounds.height) * canvas.height;
+    return {
+      x: ((event.clientX - bounds.left) / bounds.width) * canvas.width,
+      y: ((event.clientY - bounds.top) / bounds.height) * canvas.height
+    };
+  };
+
+  const handleCanvasPointerDown = (event: PointerEvent<HTMLCanvasElement>) => {
+    const point = getCanvasPoint(event);
+
+    if (!point) {
+      return;
+    }
+
+    if (workMode === "focus") {
+      event.currentTarget.setPointerCapture(event.pointerId);
+      dragStartRef.current = point;
+      setDraftFocusRegion(normalizeFocusRegion(point, point, event.currentTarget.width, event.currentTarget.height));
+      return;
+    }
+
+    toggleRectAtPoint(point);
+  };
+
+  const handleCanvasPointerMove = (event: PointerEvent<HTMLCanvasElement>) => {
+    if (workMode !== "focus" || !dragStartRef.current) {
+      return;
+    }
+
+    const point = getCanvasPoint(event);
+
+    if (!point) {
+      return;
+    }
+
+    setDraftFocusRegion(
+      normalizeFocusRegion(dragStartRef.current, point, event.currentTarget.width, event.currentTarget.height)
+    );
+  };
+
+  const handleCanvasPointerUp = (event: PointerEvent<HTMLCanvasElement>) => {
+    const endPoint = getCanvasPoint(event);
+
+    if (workMode !== "focus" || !dragStartRef.current || !endPoint) {
+      dragStartRef.current = null;
+      setDraftFocusRegion(null);
+      return;
+    }
+
+    const nextFocusRegion = normalizeFocusRegion(
+      dragStartRef.current,
+      endPoint,
+      event.currentTarget.width,
+      event.currentTarget.height
+    );
+
+    if (isUsableFocusRegion(nextFocusRegion)) {
+      setFocusRegion(nextFocusRegion);
+      setDetections([]);
+      setSelectedIds(new Set());
+      setStatus({ label: "Screen focused", tone: "ok" });
+    }
+
+    dragStartRef.current = null;
+    setDraftFocusRegion(null);
+  };
+
+  const toggleRectAtPoint = (point: Point) => {
+    const { x, y } = point;
     const hit = [...detections]
       .reverse()
       .find((rect) => x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height);
@@ -395,52 +496,95 @@ export default function App() {
 
       <section className="workspace">
         <aside className="settings-panel" aria-label="Detection settings">
-          <PanelHeading icon={<Settings2 size={18} aria-hidden="true" />} title="Settings" />
-          <SliderField
-            label="Sensitivity"
-            value={options.sensitivity}
-            min={10}
-            max={100}
-            step={1}
-            onChange={(value) => setOptions((current) => ({ ...current, sensitivity: value }))}
-          />
-          <SliderField
-            label="Min area"
-            value={Math.round(options.minAreaRatio * 10000)}
-            min={1}
-            max={80}
-            step={1}
-            suffix="bp"
-            onChange={(value) =>
-              setOptions((current) => ({ ...current, minAreaRatio: value / 10000 }))
-            }
-          />
-          <SliderField
-            label="Merge gap"
-            value={options.mergeGap}
-            min={0}
-            max={160}
-            step={2}
-            suffix="px"
-            onChange={(value) => setOptions((current) => ({ ...current, mergeGap: value }))}
-          />
-          <SliderField
-            label="Padding"
-            value={options.padding}
-            min={0}
-            max={48}
-            step={1}
-            suffix="px"
-            onChange={(value) => setOptions((current) => ({ ...current, padding: value }))}
-          />
-          <SliderField
-            label="Max"
-            value={options.maxElements}
-            min={8}
-            max={120}
-            step={1}
-            onChange={(value) => setOptions((current) => ({ ...current, maxElements: value }))}
-          />
+          <PanelHeading icon={<Crop size={18} aria-hidden="true" />} title="Workflow" />
+          <div className="mode-tabs" aria-label="Workflow mode">
+            <button
+              className={`mode-tab ${workMode === "focus" ? "active" : ""}`}
+              type="button"
+              onClick={() => setWorkMode("focus")}
+            >
+              <Crop size={16} aria-hidden="true" />
+              <span>Focus</span>
+            </button>
+            <button
+              className={`mode-tab ${workMode === "icons" ? "active" : ""}`}
+              type="button"
+              onClick={() => setWorkMode("icons")}
+            >
+              <ScanLine size={16} aria-hidden="true" />
+              <span>Icons</span>
+            </button>
+          </div>
+          <div className="focus-actions">
+            <div className="focus-metric">
+              {focusRegion
+                ? `${focusRegion.width} x ${focusRegion.height}`
+                : loadState
+                  ? `${loadState.image.naturalWidth} x ${loadState.image.naturalHeight}`
+                  : "No image"}
+            </div>
+            <button className="text-button" type="button" disabled={!loadState} onClick={clearFocus}>
+              <Maximize2 size={16} aria-hidden="true" />
+              <span>Full</span>
+            </button>
+            <button className="text-button accent" type="button" disabled={!loadState} onClick={runDetection}>
+              <ScanLine size={16} aria-hidden="true" />
+              <span>Scan</span>
+            </button>
+          </div>
+          <details className="advanced-settings">
+            <summary>
+              <Settings2 size={16} aria-hidden="true" />
+              <span>Advanced</span>
+            </summary>
+            <div className="advanced-fields">
+              <SliderField
+                label="Sensitivity"
+                value={options.sensitivity}
+                min={10}
+                max={100}
+                step={1}
+                onChange={(value) => setOptions((current) => ({ ...current, sensitivity: value }))}
+              />
+              <SliderField
+                label="Min area"
+                value={Math.round(options.minAreaRatio * 10000)}
+                min={1}
+                max={80}
+                step={1}
+                suffix="bp"
+                onChange={(value) =>
+                  setOptions((current) => ({ ...current, minAreaRatio: value / 10000 }))
+                }
+              />
+              <SliderField
+                label="Merge gap"
+                value={options.mergeGap}
+                min={0}
+                max={160}
+                step={2}
+                suffix="px"
+                onChange={(value) => setOptions((current) => ({ ...current, mergeGap: value }))}
+              />
+              <SliderField
+                label="Padding"
+                value={options.padding}
+                min={0}
+                max={48}
+                step={1}
+                suffix="px"
+                onChange={(value) => setOptions((current) => ({ ...current, padding: value }))}
+              />
+              <SliderField
+                label="Max"
+                value={options.maxElements}
+                min={8}
+                max={120}
+                step={1}
+                onChange={(value) => setOptions((current) => ({ ...current, maxElements: value }))}
+              />
+            </div>
+          </details>
           <div className="references-block">
             <div className="references-heading">
               <PanelHeading icon={<Tags size={18} aria-hidden="true" />} title="References" />
@@ -490,10 +634,6 @@ export default function App() {
               <RotateCcw size={16} aria-hidden="true" />
               <span>Reset</span>
             </button>
-            <button className="text-button accent" type="button" disabled={!loadState} onClick={runDetection}>
-              <ScanLine size={16} aria-hidden="true" />
-              <span>Scan</span>
-            </button>
           </div>
         </aside>
 
@@ -508,8 +648,11 @@ export default function App() {
             <canvas
               ref={canvasRef}
               className="preview-canvas"
-              onPointerDown={toggleRectAtPointer}
-              aria-label="Detected icons"
+              onPointerDown={handleCanvasPointerDown}
+              onPointerMove={handleCanvasPointerMove}
+              onPointerUp={handleCanvasPointerUp}
+              onPointerCancel={handleCanvasPointerUp}
+              aria-label={workMode === "focus" ? "Screen focus area" : "Detected icons"}
             />
           ) : (
             <button
@@ -695,13 +838,44 @@ function ElementCard({
   );
 }
 
-function detectFromImage(image: HTMLImageElement, options: DetectionOptions): Rect[] {
+function drawFocusOverlay(
+  context: CanvasRenderingContext2D,
+  region: FocusRegion,
+  canvasWidth: number,
+  canvasHeight: number
+): void {
+  context.save();
+  context.fillStyle = "rgba(20, 26, 24, 0.36)";
+  context.fillRect(0, 0, canvasWidth, region.y);
+  context.fillRect(0, region.y + region.height, canvasWidth, canvasHeight - region.y - region.height);
+  context.fillRect(0, region.y, region.x, region.height);
+  context.fillRect(region.x + region.width, region.y, canvasWidth - region.x - region.width, region.height);
+  context.lineWidth = Math.max(4, Math.round(canvasWidth / 480));
+  context.strokeStyle = "#2f76d2";
+  context.strokeRect(region.x, region.y, region.width, region.height);
+  context.fillStyle = "#2f76d2";
+  context.font = `${Math.max(14, Math.round(canvasWidth / 130))}px system-ui`;
+  const label = "Focus";
+  const labelWidth = context.measureText(label).width + 16;
+  const labelHeight = 26;
+  context.fillRect(region.x, Math.max(0, region.y - labelHeight), labelWidth, labelHeight);
+  context.fillStyle = "#ffffff";
+  context.fillText(label, region.x + 8, Math.max(17, region.y - 8));
+  context.restore();
+}
+
+function detectFromImage(
+  image: HTMLImageElement,
+  options: DetectionOptions,
+  focusRegion?: FocusRegion | null
+): Rect[] {
+  const sourceRegion = focusRegion ?? fullImageRegion(image.naturalWidth, image.naturalHeight);
   const scale = Math.min(
     1,
-    PROCESS_MAX_DIMENSION / Math.max(image.naturalWidth, image.naturalHeight)
+    PROCESS_MAX_DIMENSION / Math.max(sourceRegion.width, sourceRegion.height)
   );
-  const width = Math.max(1, Math.round(image.naturalWidth * scale));
-  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const width = Math.max(1, Math.round(sourceRegion.width * scale));
+  const height = Math.max(1, Math.round(sourceRegion.height * scale));
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
@@ -711,7 +885,17 @@ function detectFromImage(image: HTMLImageElement, options: DetectionOptions): Re
     throw new Error("Canvas context is not available.");
   }
 
-  context.drawImage(image, 0, 0, width, height);
+  context.drawImage(
+    image,
+    sourceRegion.x,
+    sourceRegion.y,
+    sourceRegion.width,
+    sourceRegion.height,
+    0,
+    0,
+    width,
+    height
+  );
   const imageData = context.getImageData(0, 0, width, height);
   const scaledOptions: DetectionOptions = {
     ...options,
@@ -720,18 +904,7 @@ function detectFromImage(image: HTMLImageElement, options: DetectionOptions): Re
   };
   const detected = detectIconCandidates(imageData, scaledOptions);
 
-  if (scale === 1) {
-    return detected;
-  }
-
-  const mapped = detected.map((rect) => ({
-    ...rect,
-    x: Math.round(rect.x / scale),
-    y: Math.round(rect.y / scale),
-    width: Math.round(rect.width / scale),
-    height: Math.round(rect.height / scale),
-    area: Math.round(rect.area / (scale * scale))
-  }));
+  const mapped = detected.map((rect) => mapRectFromFocusRegion(rect, sourceRegion, scale));
 
   return reindexRects(mapped);
 }

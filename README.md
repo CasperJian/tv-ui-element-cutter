@@ -1,11 +1,12 @@
 # TV UI Element Cutter
 
-A browser-based tool for finding, cutting, and naming icons inside full TV UI screenshots. Drop in the whole screen, scan once, then export every detected icon crop plus a manifest.
+A browser-based tool for finding, cutting, and naming icons inside TV UI screenshots. Drop in a photo or screenshot, focus the screen UI region first, scan icons inside that region, then export every detected crop plus a manifest.
 
 ## Features
 
-- Upload or drop a full TV UI screenshot into the workspace.
-- Cut all detected icons directly from the full screenshot.
+- Upload or drop a TV photo or UI screenshot into the workspace.
+- Focus the actual screen UI region before icon segmentation.
+- Cut detected icons from the focused region while preserving original-image coordinates.
 - Upload reference icons such as `netflix.png`, `settings.png`, or `youtube.png`; file names become labels.
 - Detect compact app/function icons with a tunable image-processing pass that filters long text-like regions and large panels.
 - Match candidates against uploaded reference icons.
@@ -57,7 +58,7 @@ npm run preview  # Preview the production build
 
 ## How Detection Works
 
-The icon detector builds a signal mask from local luminance contrast, color saturation, and bright-panel edges. It then dilates nearby pixels, extracts connected components, filters tiny noise, rejects long text-like regions and oversized panels, merges nearby icon fragments, applies padding, and sorts the final crop regions from top to bottom.
+The workflow separates screen focus from icon segmentation. A focus region defines the TV UI area to process; if no region is selected, the full image is used. The icon detector then builds a signal mask from local luminance contrast, color saturation, and bright-panel edges inside that focused region. It dilates nearby pixels, extracts connected components, filters tiny noise, rejects long text-like regions and oversized panels, merges nearby icon fragments, applies padding, maps coordinates back to the original image, and sorts the final crop regions from top to bottom.
 
 Each crop is then converted into compact visual features: color ratios, edge density, aspect ratio, and a small luminance hash. The recognizer first compares those features against uploaded reference icons, then falls back to local heuristics.
 
