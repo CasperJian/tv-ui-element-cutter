@@ -234,6 +234,45 @@ button {
   box-shadow: 0 1px 5px rgba(20, 26, 24, 0.1);
 }
 
+.target-block {
+  display: grid;
+  gap: 8px;
+}
+
+.target-label {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.target-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.target-tab {
+  min-width: 0;
+  min-height: 30px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.target-tab.active {
+  background: #ffffff;
+  color: var(--accent-strong);
+  box-shadow: 0 1px 5px rgba(20, 26, 24, 0.1);
+}
+
 .focus-actions {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;

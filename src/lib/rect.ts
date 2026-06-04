@@ -1,3 +1,5 @@
+export type RectCategory = "icon" | "component";
+
 export type Rect = {
   id: string;
   x: number;
@@ -6,6 +8,7 @@ export type Rect = {
   height: number;
   area: number;
   score: number;
+  category?: RectCategory;
   label?: string;
   confidence?: number;
   recognitionSource?: string;

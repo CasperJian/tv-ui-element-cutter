@@ -10,6 +10,7 @@ export type ExportManifest = {
   generatedAt: string;
   elements: Array<{
     id: string;
+    category: string;
     label: string;
     confidence: number;
     source: string;
@@ -52,10 +53,11 @@ export function createManifest(
     generatedAt: new Date().toISOString(),
     elements: rects.map((rect, index) => ({
       id: rect.id,
+      category: rect.category ?? "icon",
       label: rect.label ?? rect.id,
       confidence: rect.confidence ?? 0,
       source: rect.recognitionSource ?? "unknown",
-      file: elementFileName(index, rect.label),
+      file: elementFilePath(index, rect),
       x: rect.x,
       y: rect.y,
       width: rect.width,
@@ -74,7 +76,7 @@ export async function downloadCropsAsZip(
 
   for (const [index, rect] of rects.entries()) {
     const blob = await cropToPngBlob(image, rect);
-    zip.file(elementFileName(index, rect.label), await blob.arrayBuffer());
+    zip.file(elementFilePath(index, rect), await blob.arrayBuffer());
   }
 
   zip.file("manifest.json", JSON.stringify(manifest, null, 2));
@@ -104,7 +106,7 @@ export async function downloadBatchCropsAsZip(sources: BatchExportSource[]): Pro
 
     for (const [index, rect] of source.rects.entries()) {
       const blob = await cropToPngBlob(source.image, rect);
-      folder.file(elementFileName(index, rect.label), await blob.arrayBuffer());
+      folder.file(elementFilePath(index, rect), await blob.arrayBuffer());
     }
 
     folder.file("manifest.json", JSON.stringify(manifest, null, 2));
@@ -117,7 +119,7 @@ export async function downloadBatchCropsAsZip(sources: BatchExportSource[]): Pro
 
   zip.file("batch-manifest.json", JSON.stringify(batchManifest, null, 2));
   const zipBlob = await zip.generateAsync({ type: "blob" });
-  downloadBlob(zipBlob, "tv-ui-icon-batch.zip");
+  downloadBlob(zipBlob, "tv-ui-crop-batch.zip");
 }
 
 export function downloadManifest(
@@ -167,8 +169,15 @@ export async function cropToPngBlob(image: HTMLImageElement, rect: Rect): Promis
   });
 }
 
-export function elementFileName(index: number, label?: string): string {
-  const base = label && label !== "Unknown icon" ? slugify(label) : "icon";
+export function elementFilePath(index: number, rect: Rect): string {
+  const category = rect.category ?? "icon";
+  return `${category}s/${elementFileName(index, rect.label, category)}`;
+}
+
+export function elementFileName(index: number, label?: string, category = "icon"): string {
+  const fallback = category === "component" ? "component" : "icon";
+  const base =
+    label && label !== "Unknown icon" && label !== "Component" ? slugify(label) : fallback;
   return `${base}-${String(index + 1).padStart(3, "0")}.png`;
 }
 

@@ -30,6 +30,7 @@ import {
 import {
   DEFAULT_DETECTION_OPTIONS,
   detectIconCandidates,
+  detectUiElements,
   DetectionOptions
 } from "./lib/detectElements";
 import {
@@ -60,6 +61,7 @@ import { Rect, reindexRects } from "./lib/rect";
 const PROCESS_MAX_DIMENSION = 2200;
 
 type WorkMode = "focus" | "icons";
+type DatasetTarget = "icons" | "components" | "both";
 
 type LoadState = {
   image: HTMLImageElement;
@@ -80,6 +82,7 @@ export default function App() {
   const dragStartRef = useRef<Point | null>(null);
   const [loadState, setLoadState] = useState<LoadState | null>(null);
   const [workMode, setWorkMode] = useState<WorkMode>("focus");
+  const [datasetTarget, setDatasetTarget] = useState<DatasetTarget>("icons");
   const [focusRegion, setFocusRegion] = useState<FocusRegion | null>(null);
   const [draftFocusRegion, setDraftFocusRegion] = useState<FocusRegion | null>(null);
   const [detections, setDetections] = useState<Rect[]>([]);
@@ -108,13 +111,13 @@ export default function App() {
 
     window.requestAnimationFrame(async () => {
       try {
-        const rects = detectFromImage(loadState.image, options, focusRegion);
+        const rects = detectFromImage(loadState.image, options, focusRegion, datasetTarget);
         const recognized = await recognizeRectsFromImage(loadState.image, rects, referenceIcons);
         setDetections(recognized);
         setSelectedIds(new Set(recognized.map((rect) => rect.id)));
         setWorkMode("icons");
         setStatus({
-          label: `${recognized.length} icon${recognized.length === 1 ? "" : "s"} found`,
+          label: `${recognized.length} crop${recognized.length === 1 ? "" : "s"} found`,
           tone: "ok"
         });
       } catch (error) {
@@ -124,7 +127,7 @@ export default function App() {
         });
       }
     });
-  }, [focusRegion, loadState, options, referenceIcons]);
+  }, [datasetTarget, focusRegion, loadState, options, referenceIcons]);
 
   useEffect(() => {
     if (!loadState || detections.length === 0) {
@@ -248,7 +251,7 @@ export default function App() {
           const batchFocusRegion = focusRatio
             ? focusRegionFromRatio(focusRatio, image.naturalWidth, image.naturalHeight)
             : null;
-          const rects = detectFromImage(image, options, batchFocusRegion);
+          const rects = detectFromImage(image, options, batchFocusRegion, datasetTarget);
           const recognized = await recognizeRectsFromImage(image, rects, referenceIcons);
 
           sources.push({
@@ -273,7 +276,7 @@ export default function App() {
         objectUrls.forEach((url) => URL.revokeObjectURL(url));
       }
     },
-    [focusRegion, loadState, options, referenceIcons]
+    [datasetTarget, focusRegion, loadState, options, referenceIcons]
   );
 
   const drawPreview = useCallback(() => {
@@ -555,7 +558,7 @@ export default function App() {
           <button
             className="icon-button primary"
             type="button"
-            title="Find icons"
+            title="Find crops"
             disabled={!loadState}
             onClick={runDetection}
           >
@@ -602,6 +605,21 @@ export default function App() {
               <ScanLine size={16} aria-hidden="true" />
               <span>Icons</span>
             </button>
+          </div>
+          <div className="target-block">
+            <div className="target-label">Target</div>
+            <div className="target-tabs" aria-label="Dataset target">
+              {(["icons", "components", "both"] as const).map((target) => (
+                <button
+                  key={target}
+                  className={`target-tab ${datasetTarget === target ? "active" : ""}`}
+                  type="button"
+                  onClick={() => setDatasetTarget(target)}
+                >
+                  {target}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="focus-actions">
             <div className="focus-metric">
@@ -740,7 +758,7 @@ export default function App() {
               onPointerMove={handleCanvasPointerMove}
               onPointerUp={handleCanvasPointerUp}
               onPointerCancel={handleCanvasPointerUp}
-              aria-label={workMode === "focus" ? "Screen focus area" : "Detected icons"}
+              aria-label={workMode === "focus" ? "Screen focus area" : "Detected crops"}
             />
           ) : (
             <button
@@ -754,9 +772,9 @@ export default function App() {
           )}
         </section>
 
-        <aside className="elements-panel" aria-label="Detected icons">
+        <aside className="elements-panel" aria-label="Detected crops">
           <div className="elements-heading">
-            <PanelHeading icon={<ScanLine size={18} aria-hidden="true" />} title="Icons" />
+            <PanelHeading icon={<ScanLine size={18} aria-hidden="true" />} title="Crops" />
             <div className="selection-actions">
               <button className="icon-button small" type="button" title="Select all" onClick={selectAll}>
                 <Check size={15} aria-hidden="true" />
@@ -794,7 +812,7 @@ export default function App() {
             ) : (
               <div className="empty-list">
                 <Square size={20} aria-hidden="true" />
-                <span>No icons</span>
+                <span>No crops</span>
               </div>
             )}
           </div>
@@ -804,7 +822,7 @@ export default function App() {
       <footer className="statusbar">
         <span>{loadState?.name ?? "No file"}</span>
         <span>{imageMeta}</span>
-        <span>{detections.length} icons</span>
+        <span>{detections.length} crops</span>
         <span>{selectedRects.length} selected</span>
         <span className={`status-pill ${status.tone}`}>{status.label}</span>
       </footer>
@@ -910,9 +928,10 @@ function ElementCard({
         <canvas ref={previewRef} aria-hidden="true" />
       </div>
       <div className="element-meta">
-        <strong>{rect.label ?? `Icon ${String(index + 1).padStart(2, "0")}`}</strong>
+        <strong>{rect.label ?? `${rect.category ?? "crop"} ${String(index + 1).padStart(2, "0")}`}</strong>
         <span className="confidence-line">
-          {formatConfidence(rect.confidence ?? 0)} · {rect.recognitionSource ?? "unknown"}
+          {rect.category ?? "crop"} · {formatConfidence(rect.confidence ?? 0)} ·{" "}
+          {rect.recognitionSource ?? "unknown"}
         </span>
         <span>
           {rect.width} x {rect.height}
@@ -955,7 +974,8 @@ function drawFocusOverlay(
 function detectFromImage(
   image: HTMLImageElement,
   options: DetectionOptions,
-  focusRegion?: FocusRegion | null
+  focusRegion?: FocusRegion | null,
+  target: DatasetTarget = "icons"
 ): Rect[] {
   const sourceRegion = focusRegion ?? fullImageRegion(image.naturalWidth, image.naturalHeight);
   const scale = Math.min(
@@ -990,11 +1010,43 @@ function detectFromImage(
     mergeGap: Math.max(0, Math.round(options.mergeGap * scale)),
     padding: Math.max(0, Math.round(options.padding * scale))
   };
-  const detected = detectIconCandidates(imageData, scaledOptions);
+  const detected = detectByTarget(imageData, scaledOptions, target);
 
   const mapped = detected.map((rect) => mapRectFromFocusRegion(rect, sourceRegion, scale));
 
   return reindexRects(mapped);
+}
+
+function detectByTarget(
+  imageData: ImageData,
+  options: DetectionOptions,
+  target: DatasetTarget
+): Rect[] {
+  const iconRects =
+    target === "icons" || target === "both"
+      ? detectIconCandidates(imageData, options).map((rect) => ({
+          ...rect,
+          category: "icon" as const
+        }))
+      : [];
+  const componentOptions: DetectionOptions = {
+    ...options,
+    minAreaRatio: Math.max(options.minAreaRatio, 0.0012),
+    mergeGap: Math.max(options.mergeGap, 28),
+    padding: Math.max(options.padding, 8)
+  };
+  const componentRects =
+    target === "components" || target === "both"
+      ? detectUiElements(imageData, componentOptions).map((rect) => ({
+          ...rect,
+          category: "component" as const,
+          label: "Component",
+          confidence: 1,
+          recognitionSource: "geometry"
+        }))
+      : [];
+
+  return [...iconRects, ...componentRects].sort((a, b) => a.y - b.y || a.x - b.x);
 }
 
 async function recognizeRectsFromImage(
@@ -1003,6 +1055,15 @@ async function recognizeRectsFromImage(
   references: ReferenceIcon[]
 ): Promise<Rect[]> {
   return rects.map((rect) => {
+    if (rect.category === "component") {
+      return {
+        ...rect,
+        label: rect.label ?? "Component",
+        confidence: rect.confidence ?? 1,
+        recognitionSource: rect.recognitionSource ?? "geometry"
+      };
+    }
+
     const imageData = imageToImageData(image, rect);
     const recognition = recognizeIcon(extractVisualFeatures(imageData), references);
 

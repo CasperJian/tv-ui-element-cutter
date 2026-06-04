@@ -1,12 +1,13 @@
 # TV UI Element Cutter
 
-A browser-based tool for finding, cutting, and naming icons inside TV UI screenshots. Drop in a photo or screenshot, focus the screen UI region first, scan icons inside that region, then export every detected crop plus a manifest.
+A browser-based collection tool for cutting icons and UI components from TV photos. Drop in a photo or screenshot, focus the screen UI region first, choose whether to collect icons, components, or both, then export every detected crop plus a manifest.
 
 ## Features
 
 - Upload or drop a TV photo or UI screenshot into the workspace.
 - Focus the actual screen UI region before icon segmentation.
-- Cut detected icons from the focused region while preserving original-image coordinates.
+- Cut detected icons and larger UI components from the focused region while preserving original-image coordinates.
+- Choose `icons`, `components`, or `both` for single-image and batch runs.
 - Batch-run an image folder and export one ZIP for the whole set.
 - Upload reference icons such as `netflix.png`, `settings.png`, or `youtube.png`; file names become labels.
 - Detect compact app/function icons with a tunable image-processing pass that filters long text-like regions and large panels.
@@ -29,11 +30,11 @@ Open the local URL printed by Vite.
 
 ## Batch Processing
 
-Use the folder button in the top toolbar to select an image folder. The app processes every image file in that folder and downloads `tv-ui-icon-batch.zip`.
+Use the folder button in the top toolbar to select an image folder. The app processes every image file in that folder and downloads `tv-ui-crop-batch.zip`.
 
 If a focus region is already selected on the current image, batch mode reuses that focus as a proportional template for every image in the folder. If no focus region is selected, each image is scanned at full frame.
 
-The ZIP contains one folder per source image, each with cropped icon PNGs and a per-image `manifest.json`. The ZIP root also contains `batch-manifest.json`.
+The ZIP contains one folder per source image. Each source folder has `icons/` and/or `components/` subfolders plus a per-image `manifest.json`. The ZIP root also contains `batch-manifest.json`.
 
 ## Scripts
 
@@ -71,7 +72,7 @@ The workflow separates screen focus from icon segmentation. A focus region defin
 
 Each crop is then converted into compact visual features: color ratios, edge density, aspect ratio, and a small luminance hash. The recognizer first compares those features against uploaded reference icons, then falls back to local heuristics.
 
-There is no neural-network model in the current version. The extraction core is a deterministic computer-vision pipeline: contrast/saturation masking, dilation, connected components, geometry filtering, and optional reference-icon feature matching.
+There is no neural-network model in the current version. The extraction core is a deterministic computer-vision pipeline: contrast/saturation masking, dilation, connected components, geometry filtering, and optional reference-icon feature matching. Icon extraction uses tighter geometry filters; component extraction uses looser merging to capture cards, buttons, panels, and other larger UI blocks.
 
 The controls expose the most useful tuning points:
 
