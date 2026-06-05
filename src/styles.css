@@ -255,6 +255,10 @@ button {
   background: var(--panel-soft);
 }
 
+.engine-tabs {
+  grid-template-columns: repeat(2, 1fr);
+}
+
 .target-tab {
   min-width: 0;
   min-height: 30px;

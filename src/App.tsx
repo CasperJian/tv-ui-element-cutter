@@ -51,6 +51,11 @@ import {
   mapRectFromFocusRegion
 } from "./lib/focusRegion";
 import {
+  detectWithModel,
+  MODEL_DETECTOR_NAME
+} from "./lib/modelDetector";
+import type { DetectorEngine } from "./lib/modelDetector";
+import {
   extractVisualFeatures,
   labelFromFileName,
   recognizeIcon,
@@ -83,6 +88,7 @@ export default function App() {
   const [loadState, setLoadState] = useState<LoadState | null>(null);
   const [workMode, setWorkMode] = useState<WorkMode>("focus");
   const [datasetTarget, setDatasetTarget] = useState<DatasetTarget>("icons");
+  const [detectorEngine, setDetectorEngine] = useState<DetectorEngine>("model");
   const [focusRegion, setFocusRegion] = useState<FocusRegion | null>(null);
   const [draftFocusRegion, setDraftFocusRegion] = useState<FocusRegion | null>(null);
   const [detections, setDetections] = useState<Rect[]>([]);
@@ -107,11 +113,20 @@ export default function App() {
       return;
     }
 
-    setStatus({ label: "Scanning", tone: "busy" });
+    setStatus({
+      label: detectorEngine === "model" ? "Loading model" : "Scanning",
+      tone: "busy"
+    });
 
     window.requestAnimationFrame(async () => {
       try {
-        const rects = detectFromImage(loadState.image, options, focusRegion, datasetTarget);
+        const rects = await detectFromImage(
+          loadState.image,
+          options,
+          focusRegion,
+          datasetTarget,
+          detectorEngine
+        );
         const recognized = await recognizeRectsFromImage(loadState.image, rects, referenceIcons);
         setDetections(recognized);
         setSelectedIds(new Set(recognized.map((rect) => rect.id)));
@@ -127,7 +142,7 @@ export default function App() {
         });
       }
     });
-  }, [datasetTarget, focusRegion, loadState, options, referenceIcons]);
+  }, [datasetTarget, detectorEngine, focusRegion, loadState, options, referenceIcons]);
 
   useEffect(() => {
     if (!loadState || detections.length === 0) {
@@ -135,7 +150,14 @@ export default function App() {
     }
 
     let cancelled = false;
-    const baseRects = detections.map(({ label: _label, confidence: _confidence, recognitionSource: _source, ...rect }) => rect);
+    const baseRects = detections.map((rect) => {
+      if (rect.recognitionSource === "model") {
+        return rect;
+      }
+
+      const { label: _label, confidence: _confidence, recognitionSource: _source, ...baseRect } = rect;
+      return baseRect;
+    });
 
     recognizeRectsFromImage(loadState.image, baseRects, referenceIcons).then((recognized) => {
       if (!cancelled) {
@@ -251,7 +273,13 @@ export default function App() {
           const batchFocusRegion = focusRatio
             ? focusRegionFromRatio(focusRatio, image.naturalWidth, image.naturalHeight)
             : null;
-          const rects = detectFromImage(image, options, batchFocusRegion, datasetTarget);
+          const rects = await detectFromImage(
+            image,
+            options,
+            batchFocusRegion,
+            datasetTarget,
+            detectorEngine
+          );
           const recognized = await recognizeRectsFromImage(image, rects, referenceIcons);
 
           sources.push({
@@ -276,7 +304,7 @@ export default function App() {
         objectUrls.forEach((url) => URL.revokeObjectURL(url));
       }
     },
-    [datasetTarget, focusRegion, loadState, options, referenceIcons]
+    [datasetTarget, detectorEngine, focusRegion, loadState, options, referenceIcons]
   );
 
   const drawPreview = useCallback(() => {
@@ -605,6 +633,22 @@ export default function App() {
               <ScanLine size={16} aria-hidden="true" />
               <span>Icons</span>
             </button>
+          </div>
+          <div className="target-block">
+            <div className="target-label">Engine</div>
+            <div className="target-tabs engine-tabs" aria-label="Detection engine">
+              {(["model", "cv"] as const).map((engine) => (
+                <button
+                  key={engine}
+                  className={`target-tab ${detectorEngine === engine ? "active" : ""}`}
+                  type="button"
+                  title={engine === "model" ? MODEL_DETECTOR_NAME : "Classic computer vision fallback"}
+                  onClick={() => setDetectorEngine(engine)}
+                >
+                  {engine === "model" ? "Model" : "CV"}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="target-block">
             <div className="target-label">Target</div>
@@ -975,13 +1019,22 @@ function drawFocusOverlay(
   context.restore();
 }
 
-function detectFromImage(
+async function detectFromImage(
   image: HTMLImageElement,
   options: DetectionOptions,
   focusRegion?: FocusRegion | null,
-  target: DatasetTarget = "icons"
-): Rect[] {
+  target: DatasetTarget = "icons",
+  engine: DetectorEngine = "model"
+): Promise<Rect[]> {
   const sourceRegion = focusRegion ?? fullImageRegion(image.naturalWidth, image.naturalHeight);
+
+  if (engine === "model") {
+    return detectWithModel(image, sourceRegion, {
+      target,
+      maxElements: options.maxElements
+    });
+  }
+
   const scale = Math.min(
     1,
     PROCESS_MAX_DIMENSION / Math.max(sourceRegion.width, sourceRegion.height)
@@ -1059,6 +1112,10 @@ async function recognizeRectsFromImage(
   references: ReferenceIcon[]
 ): Promise<Rect[]> {
   return rects.map((rect) => {
+    if (rect.recognitionSource === "model") {
+      return rect;
+    }
+
     if (rect.category === "component") {
       return {
         ...rect,

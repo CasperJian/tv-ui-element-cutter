@@ -6,11 +6,12 @@ A browser-based collection tool for cutting icons and UI components from TV phot
 
 - Upload or drop a TV photo or UI screenshot into the workspace.
 - Focus the actual screen UI region before icon segmentation.
+- Use a ready-made browser model for default UI element detection.
 - Cut detected icons and larger UI components from the focused region while preserving original-image coordinates.
 - Choose `icons`, `components`, or `both` for single-image and batch runs.
 - Batch-run an image folder and export one ZIP for the whole set.
 - Upload reference icons such as `netflix.png`, `settings.png`, or `youtube.png`; file names become labels.
-- Detect compact app/function icons with a tunable image-processing pass that filters long text-like regions and large panels.
+- Switch to the classic CV fallback when you need a deterministic baseline.
 - Match candidates against uploaded reference icons.
 - Apply local heuristic labels for common icon-like patterns such as Netflix-like red-on-dark tiles and Settings-like neutral icons.
 - Adjust sensitivity, minimum area, merge gap, crop padding, and maximum result count.
@@ -34,7 +35,7 @@ Use the folder button in the top toolbar to select an image folder. The app proc
 
 If a focus region is already selected on the current image, batch mode reuses that focus as a proportional template for every image in the folder. If no focus region is selected, each image is scanned at full frame.
 
-Each batch run also applies reference-icon recognition and heuristic labels to every crop. The ZIP contains one folder per source image. Each source folder has `icons/` and/or `components/` subfolders plus a per-image `manifest.json`. The ZIP root also contains `batch-manifest.json`.
+Each batch run uses the selected detection engine. In the default model mode, the app loads the same ready-made browser model once, then applies it across every image in the selected folder. In CV mode, each batch run also applies reference-icon recognition and heuristic labels to every crop. The ZIP contains one folder per source image. Each source folder has `icons/` and/or `components/` subfolders plus a per-image `manifest.json`. The ZIP root also contains `batch-manifest.json`.
 
 ## Scripts
 
@@ -57,6 +58,7 @@ npm run preview  # Preview the production build
 │   └── lib/
 │       ├── detectElements.ts
 │       ├── exportElements.ts
+│       ├── modelDetector.ts
 │       ├── recognizeIcons.ts
 │       └── rect.ts
 ├── test/
@@ -68,13 +70,13 @@ npm run preview  # Preview the production build
 
 ## How Detection Works
 
-The workflow separates screen focus from icon segmentation. A focus region defines the TV UI area to process; if no region is selected, the full image is used. The icon detector then builds a signal mask from local luminance contrast, color saturation, and bright-panel edges inside that focused region. It dilates nearby pixels, extracts connected components, filters tiny noise, rejects long text-like regions and oversized panels, merges nearby icon fragments, applies padding, maps coordinates back to the original image, and sorts the final crop regions from top to bottom.
+The workflow separates screen focus from element detection. A focus region defines the TV UI area to process; if no region is selected, the full image is used.
 
-Each crop is then converted into compact visual features: color ratios, edge density, aspect ratio, and a small luminance hash. The recognizer first compares those features against uploaded reference icons, then falls back to local heuristics.
+The default `Model` engine uses Transformers.js with the ready-made `Xenova/owlvit-base-patch32` zero-shot object detection model. The app crops the focused TV screen region into an in-browser canvas, asks the model for labels such as `settings icon`, `media app logo`, `ui button`, `app tile`, and `menu item`, then exports the model's boxes as icon/component crops. The first model run downloads and caches model files from Hugging Face, so it can take longer than later runs.
 
-There is no neural-network model in the current version. The extraction core is a deterministic computer-vision pipeline: contrast/saturation masking, dilation, connected components, geometry filtering, and optional reference-icon feature matching. Icon extraction uses tighter geometry filters; component extraction uses looser merging to capture cards, buttons, panels, and other larger UI blocks.
+The optional `CV` engine remains as a fallback. It uses the previous deterministic computer-vision pipeline: contrast/saturation masking, dilation, connected components, geometry filtering, and optional reference-icon feature matching. Icon extraction uses tighter geometry filters; component extraction uses looser merging to capture cards, buttons, panels, and other larger UI blocks.
 
-The controls expose the most useful tuning points:
+The advanced controls apply to the CV fallback and to the model result cap:
 
 - `Sensitivity`: lowers or raises edge/color detection thresholds.
 - `Min area`: filters small artifacts.
