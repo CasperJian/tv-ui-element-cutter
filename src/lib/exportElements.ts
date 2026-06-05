@@ -84,7 +84,10 @@ export async function downloadCropsAsZip(
   downloadBlob(zipBlob, `${baseFileName(sourceName)}-ui-elements.zip`);
 }
 
-export async function downloadBatchCropsAsZip(sources: BatchExportSource[]): Promise<void> {
+export async function downloadBatchCropsAsZip(
+  sources: BatchExportSource[],
+  fileName = "tv-ui-crop-batch.zip"
+): Promise<void> {
   const zip = new JSZip();
   const batchManifest: BatchExportManifest = {
     generatedAt: new Date().toISOString(),
@@ -119,7 +122,7 @@ export async function downloadBatchCropsAsZip(sources: BatchExportSource[]): Pro
 
   zip.file("batch-manifest.json", JSON.stringify(batchManifest, null, 2));
   const zipBlob = await zip.generateAsync({ type: "blob" });
-  downloadBlob(zipBlob, "tv-ui-crop-batch.zip");
+  downloadBlob(zipBlob, fileName);
 }
 
 export function downloadManifest(
