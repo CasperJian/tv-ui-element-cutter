@@ -637,6 +637,10 @@ export default function App() {
               <ScanLine size={16} aria-hidden="true" />
               <span>Scan</span>
             </button>
+            <button className="text-button" type="button" onClick={() => folderInputRef.current?.click()}>
+              <FolderOpen size={16} aria-hidden="true" />
+              <span>Batch</span>
+            </button>
           </div>
           <details className="advanced-settings">
             <summary>

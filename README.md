@@ -34,7 +34,7 @@ Use the folder button in the top toolbar to select an image folder. The app proc
 
 If a focus region is already selected on the current image, batch mode reuses that focus as a proportional template for every image in the folder. If no focus region is selected, each image is scanned at full frame.
 
-The ZIP contains one folder per source image. Each source folder has `icons/` and/or `components/` subfolders plus a per-image `manifest.json`. The ZIP root also contains `batch-manifest.json`.
+Each batch run also applies reference-icon recognition and heuristic labels to every crop. The ZIP contains one folder per source image. Each source folder has `icons/` and/or `components/` subfolders plus a per-image `manifest.json`. The ZIP root also contains `batch-manifest.json`.
 
 ## Scripts
 
