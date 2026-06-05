@@ -1,4 +1,6 @@
+import { DEFAULT_DETECTION_OPTIONS, detectIconCandidates } from "./detectElements";
 import type { FocusRegion } from "./focusRegion";
+import { mapRectFromFocusRegion } from "./focusRegion";
 import { reindexRects } from "./rect";
 import type { Rect, RectCategory } from "./rect";
 
@@ -36,6 +38,7 @@ type ZeroShotDetector = (
 export const MODEL_DETECTOR_NAME = "Xenova/owlvit-base-patch32";
 
 const MODEL_MAX_DIMENSION = 1280;
+const FALLBACK_MAX_DIMENSION = 2200;
 const MODEL_THRESHOLD = 0.045;
 const DUPLICATE_IOU_THRESHOLD = 0.82;
 
@@ -62,25 +65,37 @@ const COMPONENT_LABELS = [
 ];
 
 let detectorPromise: Promise<ZeroShotDetector> | null = null;
+let shouldUseLocalFallback = false;
 
 export async function detectWithModel(
   image: HTMLImageElement,
   region: FocusRegion,
   options: ModelDetectionOptions
 ): Promise<Rect[]> {
-  const detector = await getDetector();
-  const { canvas, scale } = cropRegionToCanvas(image, region);
-  const candidateLabels = labelsForTarget(options.target);
-  const output = await detector(canvas, candidateLabels, {
-    threshold: MODEL_THRESHOLD,
-    top_k: Math.max(options.maxElements * 3, options.maxElements),
-    percentage: false
-  });
-  const rects = output
-    .map((detection) => detectionToRect(detection, region, scale, options.target))
-    .filter((rect): rect is Rect => rect !== null);
+  if (shouldUseLocalFallback) {
+    return detectWithLocalFallback(image, region, options);
+  }
 
-  return reindexRects(removeDuplicateRects(rects).slice(0, options.maxElements));
+  try {
+    const detector = await getDetector();
+    const { canvas, scale } = cropRegionToCanvas(image, region, MODEL_MAX_DIMENSION);
+    const candidateLabels = labelsForTarget(options.target);
+    const output = await detector(canvas, candidateLabels, {
+      threshold: MODEL_THRESHOLD,
+      top_k: Math.max(options.maxElements * 3, options.maxElements),
+      percentage: false
+    });
+    const rects = output
+      .map((detection) => detectionToRect(detection, region, scale, options.target))
+      .filter((rect): rect is Rect => rect !== null);
+
+    return reindexRects(removeDuplicateRects(rects).slice(0, options.maxElements));
+  } catch {
+    detectorPromise = null;
+    shouldUseLocalFallback = true;
+    console.info("Model detector is unavailable in this browser. Continuing with local icon extraction.");
+    return detectWithLocalFallback(image, region, options);
+  }
 }
 
 async function getDetector(): Promise<ZeroShotDetector> {
@@ -88,7 +103,10 @@ async function getDetector(): Promise<ZeroShotDetector> {
     detectorPromise = import("@huggingface/transformers").then(async ({ env, pipeline }) => {
       env.allowLocalModels = false;
       env.allowRemoteModels = true;
-      return (await pipeline("zero-shot-object-detection", MODEL_DETECTOR_NAME)) as unknown as ZeroShotDetector;
+      return (await pipeline("zero-shot-object-detection", MODEL_DETECTOR_NAME, {
+        device: "wasm",
+        dtype: "fp32"
+      })) as unknown as ZeroShotDetector;
     });
   }
 
@@ -97,9 +115,10 @@ async function getDetector(): Promise<ZeroShotDetector> {
 
 function cropRegionToCanvas(
   image: HTMLImageElement,
-  region: FocusRegion
+  region: FocusRegion,
+  maxDimension: number
 ): { canvas: HTMLCanvasElement; scale: number } {
-  const scale = Math.min(1, MODEL_MAX_DIMENSION / Math.max(region.width, region.height));
+  const scale = Math.min(1, maxDimension / Math.max(region.width, region.height));
   const width = Math.max(1, Math.round(region.width * scale));
   const height = Math.max(1, Math.round(region.height * scale));
   const canvas = document.createElement("canvas");
@@ -124,6 +143,41 @@ function cropRegionToCanvas(
   );
 
   return { canvas, scale };
+}
+
+function detectWithLocalFallback(
+  image: HTMLImageElement,
+  region: FocusRegion,
+  options: ModelDetectionOptions
+): Rect[] {
+  const { canvas, scale } = cropRegionToCanvas(image, region, FALLBACK_MAX_DIMENSION);
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    throw new Error("Canvas context is not available.");
+  }
+
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  const rects = detectIconCandidates(imageData, {
+    ...DEFAULT_DETECTION_OPTIONS,
+    sensitivity: 82,
+    minAreaRatio: 0.00005,
+    mergeGap: 8,
+    padding: 4,
+    maxElements: options.maxElements
+  }).map((rect) => {
+    const mapped = mapRectFromFocusRegion(rect, region, scale);
+
+    return {
+      ...mapped,
+      category: "icon" as const,
+      label: "Icon",
+      confidence: Math.round(mapped.score * 100) / 100,
+      recognitionSource: "fallback"
+    };
+  });
+
+  return reindexRects(removeDuplicateRects(rects).slice(0, options.maxElements));
 }
 
 function labelsForTarget(target: ModelTarget): string[] {
