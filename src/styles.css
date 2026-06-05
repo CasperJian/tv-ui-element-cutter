@@ -188,93 +188,31 @@ button {
   color: var(--accent);
 }
 
-.selection-actions,
-.panel-actions,
-.references-heading {
+.selection-actions {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.references-heading {
-  justify-content: space-between;
-}
-
-.panel-actions {
-  margin-top: auto;
-}
-
-.mode-tabs {
+.batch-mode-card {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-  padding: 4px;
+  gap: 4px;
+  padding: 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel-soft);
 }
 
-.mode-tab {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  min-height: 34px;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.mode-tab.active {
-  background: #ffffff;
-  color: var(--accent-strong);
-  box-shadow: 0 1px 5px rgba(20, 26, 24, 0.1);
-}
-
-.target-block {
-  display: grid;
-  gap: 8px;
-}
-
-.target-label {
+.batch-mode-card span {
   color: var(--text-muted);
   font-size: 12px;
   font-weight: 800;
 }
 
-.target-tabs {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 5px;
-  padding: 4px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel-soft);
-}
-
-.engine-tabs {
-  grid-template-columns: repeat(2, 1fr);
-}
-
-.target-tab {
-  min-width: 0;
-  min-height: 30px;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 800;
-  text-transform: capitalize;
-}
-
-.target-tab.active {
-  background: #ffffff;
-  color: var(--accent-strong);
-  box-shadow: 0 1px 5px rgba(20, 26, 24, 0.1);
+.batch-mode-card strong {
+  color: #202322;
+  font-size: 14px;
+  font-weight: 850;
 }
 
 .focus-actions {
@@ -293,132 +231,6 @@ button {
   font-size: 12px;
   font-weight: 760;
   font-variant-numeric: tabular-nums;
-}
-
-.advanced-settings {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #ffffff;
-}
-
-.advanced-settings summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 38px;
-  padding: 0 10px;
-  color: #27312d;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 800;
-  list-style: none;
-}
-
-.advanced-settings summary::-webkit-details-marker {
-  display: none;
-}
-
-.advanced-settings summary svg {
-  color: var(--accent);
-}
-
-.advanced-fields {
-  display: grid;
-  gap: 16px;
-  padding: 4px 10px 12px;
-}
-
-.slider-field {
-  display: grid;
-  gap: 9px;
-}
-
-.slider-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.slider-label output {
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.slider-field input[type="range"] {
-  width: 100%;
-  accent-color: var(--accent);
-}
-
-.references-block {
-  display: grid;
-  gap: 10px;
-  min-height: 0;
-}
-
-.reference-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  max-height: 140px;
-  overflow: auto;
-}
-
-.reference-chip,
-.reference-empty {
-  display: inline-grid;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  max-width: 100%;
-  min-height: 34px;
-  padding: 4px 6px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #ffffff;
-  color: #27312d;
-  font-size: 12px;
-  font-weight: 750;
-}
-
-.reference-empty {
-  grid-template-columns: auto auto;
-  cursor: pointer;
-}
-
-.reference-chip img {
-  width: 24px;
-  height: 24px;
-  object-fit: contain;
-  border-radius: 5px;
-  background: #202322;
-}
-
-.reference-chip span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chip-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.chip-button:hover {
-  background: #f0f3ef;
-  color: #202322;
 }
 
 .viewer {
@@ -659,10 +471,6 @@ button {
   .settings-panel {
     border-right: 0;
     border-bottom: 1px solid var(--line);
-  }
-
-  .panel-actions {
-    margin-top: 0;
   }
 
   .viewer {

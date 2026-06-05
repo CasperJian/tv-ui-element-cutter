@@ -10,20 +10,13 @@ import {
   useState
 } from "react";
 import {
-  BadgePlus,
   Check,
-  Crop,
-  Download,
-  FileJson,
   FolderOpen,
   Image as ImageIcon,
   Maximize2,
-  RotateCcw,
   ScanLine,
   Scissors,
-  Settings2,
   Square,
-  Tags,
   Upload,
   X
 } from "lucide-react";
@@ -35,9 +28,7 @@ import {
 } from "./lib/detectElements";
 import {
   BatchExportSource,
-  downloadBatchCropsAsZip,
-  downloadCropsAsZip,
-  downloadManifest
+  downloadBatchCropsAsZip
 } from "./lib/exportElements";
 import {
   FocusRegion,
@@ -51,13 +42,10 @@ import {
   mapRectFromFocusRegion
 } from "./lib/focusRegion";
 import {
-  detectWithModel,
-  MODEL_DETECTOR_NAME
+  detectWithModel
 } from "./lib/modelDetector";
-import type { DetectorEngine } from "./lib/modelDetector";
 import {
   extractVisualFeatures,
-  labelFromFileName,
   recognizeIcon,
   ReferenceIcon
 } from "./lib/recognizeIcons";
@@ -83,20 +71,17 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
-  const referenceInputRef = useRef<HTMLInputElement | null>(null);
   const dragStartRef = useRef<Point | null>(null);
   const [loadState, setLoadState] = useState<LoadState | null>(null);
   const [workMode, setWorkMode] = useState<WorkMode>("focus");
-  const [datasetTarget, setDatasetTarget] = useState<DatasetTarget>("icons");
-  const [detectorEngine, setDetectorEngine] = useState<DetectorEngine>("model");
+  const [datasetTarget] = useState<DatasetTarget>("both");
   const [focusRegion, setFocusRegion] = useState<FocusRegion | null>(null);
   const [draftFocusRegion, setDraftFocusRegion] = useState<FocusRegion | null>(null);
   const [detections, setDetections] = useState<Rect[]>([]);
-  const [referenceIcons, setReferenceIcons] = useState<ReferenceIcon[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isDragging, setIsDragging] = useState(false);
   const [status, setStatus] = useState<Status>({ label: "Ready", tone: "idle" });
-  const [options, setOptions] = useState<DetectionOptions>(DEFAULT_DETECTION_OPTIONS);
+  const options = DEFAULT_DETECTION_OPTIONS;
 
   const selectedRects = useMemo(
     () => detections.filter((rect) => selectedIds.has(rect.id)),
@@ -113,10 +98,7 @@ export default function App() {
       return;
     }
 
-    setStatus({
-      label: detectorEngine === "model" ? "Loading model" : "Scanning",
-      tone: "busy"
-    });
+    setStatus({ label: "Loading model", tone: "busy" });
 
     window.requestAnimationFrame(async () => {
       try {
@@ -124,10 +106,9 @@ export default function App() {
           loadState.image,
           options,
           focusRegion,
-          datasetTarget,
-          detectorEngine
+          datasetTarget
         );
-        const recognized = await recognizeRectsFromImage(loadState.image, rects, referenceIcons);
+        const recognized = await recognizeRectsFromImage(loadState.image, rects);
         setDetections(recognized);
         setSelectedIds(new Set(recognized.map((rect) => rect.id)));
         setWorkMode("icons");
@@ -142,33 +123,7 @@ export default function App() {
         });
       }
     });
-  }, [datasetTarget, detectorEngine, focusRegion, loadState, options, referenceIcons]);
-
-  useEffect(() => {
-    if (!loadState || detections.length === 0) {
-      return;
-    }
-
-    let cancelled = false;
-    const baseRects = detections.map((rect) => {
-      if (rect.recognitionSource === "model") {
-        return rect;
-      }
-
-      const { label: _label, confidence: _confidence, recognitionSource: _source, ...baseRect } = rect;
-      return baseRect;
-    });
-
-    recognizeRectsFromImage(loadState.image, baseRects, referenceIcons).then((recognized) => {
-      if (!cancelled) {
-        setDetections(recognized);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [referenceIcons]);
+  }, [datasetTarget, focusRegion, loadState, options]);
 
   const handleFiles = useCallback((files: FileList | null) => {
     const file = files?.[0];
@@ -200,48 +155,6 @@ export default function App() {
       setStatus({ label: "Image could not be loaded", tone: "error" });
     };
     image.src = src;
-  }, []);
-
-  const handleReferenceFiles = useCallback(async (files: FileList | null) => {
-    const imageFiles = Array.from(files ?? []).filter((file) => file.type.startsWith("image/"));
-
-    if (imageFiles.length === 0) {
-      setStatus({ label: "Choose reference icons", tone: "error" });
-      return;
-    }
-
-    setStatus({ label: "Indexing references", tone: "busy" });
-
-    try {
-      const references = await Promise.all(
-        imageFiles.map(async (file) => {
-          const previewSrc = await readFileAsDataUrl(file);
-          const image = await loadImageElement(previewSrc);
-          const imageData = imageToImageData(image);
-
-          return {
-            id: crypto.randomUUID(),
-            label: labelFromFileName(file.name),
-            fileName: file.name,
-            width: image.naturalWidth,
-            height: image.naturalHeight,
-            previewSrc,
-            features: extractVisualFeatures(imageData)
-          };
-        })
-      );
-
-      setReferenceIcons((current) => [...current, ...references]);
-      setStatus({
-        label: `${references.length} reference${references.length === 1 ? "" : "s"} added`,
-        tone: "ok"
-      });
-    } catch (error) {
-      setStatus({
-        label: error instanceof Error ? error.message : "Reference import failed",
-        tone: "error"
-      });
-    }
   }, []);
 
   const handleBatchFiles = useCallback(
@@ -277,10 +190,9 @@ export default function App() {
             image,
             options,
             batchFocusRegion,
-            datasetTarget,
-            detectorEngine
+            datasetTarget
           );
-          const recognized = await recognizeRectsFromImage(image, rects, referenceIcons);
+          const recognized = await recognizeRectsFromImage(image, rects);
 
           sources.push({
             sourceName: file.name,
@@ -304,7 +216,7 @@ export default function App() {
         objectUrls.forEach((url) => URL.revokeObjectURL(url));
       }
     },
-    [datasetTarget, detectorEngine, focusRegion, loadState, options, referenceIcons]
+    [datasetTarget, focusRegion, loadState, options]
   );
 
   const drawPreview = useCallback(() => {
@@ -371,10 +283,6 @@ export default function App() {
       }
     };
   }, [loadState]);
-
-  const resetOptions = () => {
-    setOptions(DEFAULT_DETECTION_OPTIONS);
-  };
 
   const clearFocus = () => {
     setFocusRegion(null);
@@ -490,33 +398,6 @@ export default function App() {
     setSelectedIds(new Set());
   };
 
-  const handleZipDownload = async () => {
-    if (!loadState || selectedRects.length === 0) {
-      return;
-    }
-
-    setStatus({ label: "Exporting ZIP", tone: "busy" });
-
-    try {
-      await downloadCropsAsZip(loadState.image, selectedRects, loadState.name);
-      setStatus({ label: "ZIP exported", tone: "ok" });
-    } catch (error) {
-      setStatus({
-        label: error instanceof Error ? error.message : "Export failed",
-        tone: "error"
-      });
-    }
-  };
-
-  const handleManifestDownload = () => {
-    if (!loadState || detections.length === 0) {
-      return;
-    }
-
-    downloadManifest(loadState.image, detections, loadState.name);
-    setStatus({ label: "Manifest exported", tone: "ok" });
-  };
-
   const handleDrop = (event: DragEvent<HTMLElement>) => {
     event.preventDefault();
     setIsDragging(false);
@@ -544,14 +425,6 @@ export default function App() {
             onChange={(event: ChangeEvent<HTMLInputElement>) => handleFiles(event.target.files)}
           />
           <input
-            ref={referenceInputRef}
-            className="visually-hidden"
-            type="file"
-            accept="image/*"
-            multiple
-            onChange={(event: ChangeEvent<HTMLInputElement>) => handleReferenceFiles(event.target.files)}
-          />
-          <input
             ref={folderInputRef}
             className="visually-hidden"
             type="file"
@@ -568,102 +441,22 @@ export default function App() {
             <Upload size={19} aria-hidden="true" />
           </button>
           <button
-            className="icon-button"
-            type="button"
-            title="Add reference icons"
-            onClick={() => referenceInputRef.current?.click()}
-          >
-            <BadgePlus size={19} aria-hidden="true" />
-          </button>
-          <button
-            className="icon-button"
+            className="icon-button primary"
             type="button"
             title="Batch folder"
             onClick={() => folderInputRef.current?.click()}
           >
             <FolderOpen size={19} aria-hidden="true" />
           </button>
-          <button
-            className="icon-button primary"
-            type="button"
-            title="Find crops"
-            disabled={!loadState}
-            onClick={runDetection}
-          >
-            <ScanLine size={19} aria-hidden="true" />
-          </button>
-          <button
-            className="icon-button"
-            type="button"
-            title="Download selected crops"
-            disabled={!loadState || selectedRects.length === 0}
-            onClick={handleZipDownload}
-          >
-            <Download size={19} aria-hidden="true" />
-          </button>
-          <button
-            className="icon-button"
-            type="button"
-            title="Download manifest"
-            disabled={!loadState || detections.length === 0}
-            onClick={handleManifestDownload}
-          >
-            <FileJson size={19} aria-hidden="true" />
-          </button>
         </div>
       </header>
 
       <section className="workspace">
-        <aside className="settings-panel" aria-label="Detection settings">
-          <PanelHeading icon={<Crop size={18} aria-hidden="true" />} title="Workflow" />
-          <div className="mode-tabs" aria-label="Workflow mode">
-            <button
-              className={`mode-tab ${workMode === "focus" ? "active" : ""}`}
-              type="button"
-              onClick={() => setWorkMode("focus")}
-            >
-              <Crop size={16} aria-hidden="true" />
-              <span>Focus</span>
-            </button>
-            <button
-              className={`mode-tab ${workMode === "icons" ? "active" : ""}`}
-              type="button"
-              onClick={() => setWorkMode("icons")}
-            >
-              <ScanLine size={16} aria-hidden="true" />
-              <span>Icons</span>
-            </button>
-          </div>
-          <div className="target-block">
-            <div className="target-label">Engine</div>
-            <div className="target-tabs engine-tabs" aria-label="Detection engine">
-              {(["model", "cv"] as const).map((engine) => (
-                <button
-                  key={engine}
-                  className={`target-tab ${detectorEngine === engine ? "active" : ""}`}
-                  type="button"
-                  title={engine === "model" ? MODEL_DETECTOR_NAME : "Classic computer vision fallback"}
-                  onClick={() => setDetectorEngine(engine)}
-                >
-                  {engine === "model" ? "Model" : "CV"}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="target-block">
-            <div className="target-label">Target</div>
-            <div className="target-tabs" aria-label="Dataset target">
-              {(["icons", "components", "both"] as const).map((target) => (
-                <button
-                  key={target}
-                  className={`target-tab ${datasetTarget === target ? "active" : ""}`}
-                  type="button"
-                  onClick={() => setDatasetTarget(target)}
-                >
-                  {target}
-                </button>
-              ))}
-            </div>
+        <aside className="settings-panel" aria-label="Batch controls">
+          <PanelHeading icon={<FolderOpen size={18} aria-hidden="true" />} title="Batch" />
+          <div className="batch-mode-card">
+            <span>Model</span>
+            <strong>icons + components</strong>
           </div>
           <div className="focus-actions">
             <div className="focus-metric">
@@ -677,116 +470,13 @@ export default function App() {
               <Maximize2 size={16} aria-hidden="true" />
               <span>Full</span>
             </button>
-            <button className="text-button accent" type="button" disabled={!loadState} onClick={runDetection}>
+            <button className="text-button" type="button" disabled={!loadState} onClick={runDetection}>
               <ScanLine size={16} aria-hidden="true" />
               <span>Scan</span>
             </button>
-            <button className="text-button" type="button" onClick={() => folderInputRef.current?.click()}>
+            <button className="text-button accent" type="button" onClick={() => folderInputRef.current?.click()}>
               <FolderOpen size={16} aria-hidden="true" />
               <span>Batch</span>
-            </button>
-          </div>
-          <details className="advanced-settings">
-            <summary>
-              <Settings2 size={16} aria-hidden="true" />
-              <span>Advanced</span>
-            </summary>
-            <div className="advanced-fields">
-              <SliderField
-                label="Sensitivity"
-                value={options.sensitivity}
-                min={10}
-                max={100}
-                step={1}
-                onChange={(value) => setOptions((current) => ({ ...current, sensitivity: value }))}
-              />
-              <SliderField
-                label="Min area"
-                value={Math.round(options.minAreaRatio * 10000)}
-                min={1}
-                max={80}
-                step={1}
-                suffix="bp"
-                onChange={(value) =>
-                  setOptions((current) => ({ ...current, minAreaRatio: value / 10000 }))
-                }
-              />
-              <SliderField
-                label="Merge gap"
-                value={options.mergeGap}
-                min={0}
-                max={160}
-                step={2}
-                suffix="px"
-                onChange={(value) => setOptions((current) => ({ ...current, mergeGap: value }))}
-              />
-              <SliderField
-                label="Padding"
-                value={options.padding}
-                min={0}
-                max={48}
-                step={1}
-                suffix="px"
-                onChange={(value) => setOptions((current) => ({ ...current, padding: value }))}
-              />
-              <SliderField
-                label="Max"
-                value={options.maxElements}
-                min={8}
-                max={120}
-                step={1}
-                onChange={(value) => setOptions((current) => ({ ...current, maxElements: value }))}
-              />
-            </div>
-          </details>
-          <div className="references-block">
-            <div className="references-heading">
-              <PanelHeading icon={<Tags size={18} aria-hidden="true" />} title="References" />
-              <button
-                className="icon-button small"
-                type="button"
-                title="Add reference icons"
-                onClick={() => referenceInputRef.current?.click()}
-              >
-                <BadgePlus size={15} aria-hidden="true" />
-              </button>
-            </div>
-            <div className="reference-list">
-              {referenceIcons.length > 0 ? (
-                referenceIcons.map((reference) => (
-                  <div className="reference-chip" key={reference.id}>
-                    <img src={reference.previewSrc} alt="" />
-                    <span>{reference.label}</span>
-                    <button
-                      className="chip-button"
-                      type="button"
-                      title={`Remove ${reference.label}`}
-                      onClick={() =>
-                        setReferenceIcons((current) =>
-                          current.filter((item) => item.id !== reference.id)
-                        )
-                      }
-                    >
-                      <X size={13} aria-hidden="true" />
-                    </button>
-                  </div>
-                ))
-              ) : (
-                <button
-                  className="reference-empty"
-                  type="button"
-                  onClick={() => referenceInputRef.current?.click()}
-                >
-                  <BadgePlus size={15} aria-hidden="true" />
-                  <span>Add icons</span>
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="panel-actions">
-            <button className="text-button" type="button" onClick={resetOptions}>
-              <RotateCcw size={16} aria-hidden="true" />
-              <span>Reset</span>
             </button>
           </div>
         </aside>
@@ -875,44 +565,6 @@ export default function App() {
         <span className={`status-pill ${status.tone}`}>{status.label}</span>
       </footer>
     </main>
-  );
-}
-
-function SliderField({
-  label,
-  value,
-  min,
-  max,
-  step,
-  suffix = "",
-  onChange
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  suffix?: string;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <label className="slider-field">
-      <span className="slider-label">
-        <span>{label}</span>
-        <output>
-          {value}
-          {suffix}
-        </output>
-      </span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-      />
-    </label>
   );
 }
 
@@ -1024,7 +676,7 @@ async function detectFromImage(
   options: DetectionOptions,
   focusRegion?: FocusRegion | null,
   target: DatasetTarget = "icons",
-  engine: DetectorEngine = "model"
+  engine: "model" | "cv" = "model"
 ): Promise<Rect[]> {
   const sourceRegion = focusRegion ?? fullImageRegion(image.naturalWidth, image.naturalHeight);
 
@@ -1109,7 +761,7 @@ function detectByTarget(
 async function recognizeRectsFromImage(
   image: HTMLImageElement,
   rects: Rect[],
-  references: ReferenceIcon[]
+  references: ReferenceIcon[] = []
 ): Promise<Rect[]> {
   return rects.map((rect) => {
     if (rect.recognitionSource === "model") {
@@ -1153,15 +805,6 @@ function imageToImageData(image: HTMLImageElement, rect?: Rect): ImageData {
 
   context.drawImage(image, x, y, width, height, 0, 0, width, height);
   return context.getImageData(0, 0, width, height);
-}
-
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
-    reader.readAsDataURL(file);
-  });
 }
 
 function loadImageElement(src: string): Promise<HTMLImageElement> {
